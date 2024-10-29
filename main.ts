@@ -1,4 +1,5 @@
-import { App, Plugin, PluginSettingTab, Setting, Modal, Notice, MarkdownView } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, Modal, Notice } from 'obsidian';
+import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetType, hoverTooltip } from '@codemirror/view';
 
 interface MyPluginSettings {
 	apiKey: string;
@@ -17,6 +18,78 @@ export default class FatebookPlugin extends Plugin {
 		
 		await this.loadSettings();
 
+		// Create a function to create the embed DOM element
+		const createEmbed = (questionId: string) => {
+			const dom = document.createElement('div');
+			dom.className = 'fatebook-embed';
+			
+			const iframe = document.createElement('iframe');
+			iframe.src = `https://fatebook.io/embed/q/${questionId}?compact=true&requireSignIn=false`;
+			iframe.width = '400';
+			iframe.height = '200';
+			iframe.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+			iframe.style.borderRadius = '4px';
+			iframe.style.display = 'block';
+			
+			// Handle load errors
+			iframe.onerror = () => {
+				console.error('Failed to load Fatebook embed');
+			};
+			
+			dom.appendChild(iframe);
+			return dom;
+		};
+
+		// Register for edit mode
+		this.registerEditorExtension(hoverTooltip((view, pos) => {
+			const line = view.state.doc.lineAt(pos);
+			const linkRegex = /\[([^\]]+)\]\((https:\/\/fatebook\.io\/q\/[^)]+)\)/g;
+			let match;
+
+			while ((match = linkRegex.exec(line.text)) !== null) {
+				const from = line.from + match.index;
+				const to = from + match[0].length;
+				
+				if (pos >= from && pos <= to && match[2]) {
+					const idMatch = match[2].match(/--([^)]+)$/);
+					if (idMatch) {
+						return {
+							pos: from,
+							end: to,
+							above: true,
+							create() {
+								return { dom: createEmbed(idMatch[1]) };
+							}
+						};
+					}
+				}
+			}
+			return null;
+		}));
+
+		// Register for read mode
+		const hoverHandler = (event: MouseEvent) => {
+			const target = event.target as HTMLElement;
+			const href = target.getAttribute('href');
+			
+			if (href?.includes('fatebook.io/q/')) {
+				const idMatch = href.match(/--([^)]+)$/);
+				if (idMatch && !target.querySelector('.fatebook-embed')) {
+					const embed = createEmbed(idMatch[1]);
+					target.appendChild(embed);
+
+					// Remove embed when mouse leaves
+					const removeEmbed = () => {
+						embed.remove();
+						target.removeEventListener('mouseleave', removeEmbed);
+					};
+					target.addEventListener('mouseleave', removeEmbed);
+				}
+			}
+		};
+
+		this.registerDomEvent(document, 'mouseover', hoverHandler);
+
 		// Add a command to create a new prediction
 		this.addCommand({
 			id: 'create-fatebook-prediction',
@@ -28,46 +101,10 @@ export default class FatebookPlugin extends Plugin {
 
 		// Add settings tab
 		this.addSettingTab(new FatebookSettingTab(this.app, this));
+	}
 
-		// Register markdown processor for embedding
-		this.registerMarkdownPostProcessor((el, ctx) => {
-			const paragraphs = el.querySelectorAll('p');
-			
-			paragraphs.forEach(p => {
-				const link = p.querySelector('a');
-				if (link) {
-					const href = link.getAttribute('href');
-					if (href?.includes('fatebook.io/q/')) {
-						console.log('Found Fatebook link in paragraph:', href);
-						
-						// Extract the question ID
-						const idMatch = href.match(/--([^)]+)$/);
-						if (idMatch) {
-							const questionId = idMatch[1];
-							
-							// Create the embed
-							const embedContainer = document.createElement('div');
-							embedContainer.className = 'fatebook-embed';
-							embedContainer.style.marginTop = '5px';
-							embedContainer.style.marginBottom = '5px';
-							
-							const iframe = document.createElement('iframe');
-							iframe.src = `https://fatebook.io/embed/q/${questionId}?compact=true&requireSignIn=false`;
-							iframe.width = '400';
-							iframe.height = '200';
-							iframe.style.border = '1px solid rgba(255, 255, 255, 0.1)';
-							iframe.style.borderRadius = '4px';
-							iframe.style.display = 'block';
-							
-							embedContainer.appendChild(iframe);
-							
-							// Insert after the paragraph containing the link
-							p.parentNode?.insertBefore(embedContainer, p.nextSibling);
-						}
-					}
-				}
-			});
-		});
+	onunload() {
+		// Event listeners registered with registerDomEvent are automatically cleaned up
 	}
 
 	async loadSettings() {
