@@ -1,6 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
-
-// Remember to rename these classes and interfaces!
+import { App, Plugin, PluginSettingTab, Setting, Modal, Notice, MarkdownView } from 'obsidian';
 
 interface MyPluginSettings {
 	apiKey: string;
@@ -14,6 +12,9 @@ export default class FatebookPlugin extends Plugin {
 	settings: MyPluginSettings;
 
 	async onload() {
+		console.log('Loading Fatebook plugin...');
+		new Notice('Fatebook plugin loaded!');
+		
 		await this.loadSettings();
 
 		// Add a command to create a new prediction
@@ -27,10 +28,46 @@ export default class FatebookPlugin extends Plugin {
 
 		// Add settings tab
 		this.addSettingTab(new FatebookSettingTab(this.app, this));
-	}
 
-	onunload() {
-
+		// Register markdown processor for embedding
+		this.registerMarkdownPostProcessor((el, ctx) => {
+			const paragraphs = el.querySelectorAll('p');
+			
+			paragraphs.forEach(p => {
+				const link = p.querySelector('a');
+				if (link) {
+					const href = link.getAttribute('href');
+					if (href?.includes('fatebook.io/q/')) {
+						console.log('Found Fatebook link in paragraph:', href);
+						
+						// Extract the question ID
+						const idMatch = href.match(/--([^)]+)$/);
+						if (idMatch) {
+							const questionId = idMatch[1];
+							
+							// Create the embed
+							const embedContainer = document.createElement('div');
+							embedContainer.className = 'fatebook-embed';
+							embedContainer.style.marginTop = '5px';
+							embedContainer.style.marginBottom = '5px';
+							
+							const iframe = document.createElement('iframe');
+							iframe.src = `https://fatebook.io/embed/q/${questionId}?compact=true&requireSignIn=false`;
+							iframe.width = '400';
+							iframe.height = '200';
+							iframe.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+							iframe.style.borderRadius = '4px';
+							iframe.style.display = 'block';
+							
+							embedContainer.appendChild(iframe);
+							
+							// Insert after the paragraph containing the link
+							p.parentNode?.insertBefore(embedContainer, p.nextSibling);
+						}
+					}
+				}
+			});
+		});
 	}
 
 	async loadSettings() {
@@ -92,7 +129,6 @@ export default class FatebookPlugin extends Plugin {
 		}
 	}
 
-	// Helper function to make HTTP requests
 	private makeRequest(url: string): Promise<string | null> {
 		return new Promise((resolve) => {
 			// @ts-ignore
