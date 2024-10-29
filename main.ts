@@ -3,79 +3,30 @@ import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Set
 // Remember to rename these classes and interfaces!
 
 interface MyPluginSettings {
-	mySetting: string;
+	apiKey: string;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+	apiKey: ''
 }
 
-export default class MyPlugin extends Plugin {
+export default class FatebookPlugin extends Plugin {
 	settings: MyPluginSettings;
 
 	async onload() {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
-
-		// This adds a simple command that can be triggered anywhere
+		// Add a command to create a new prediction
 		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
+			id: 'create-fatebook-prediction',
+			name: 'Create New Prediction',
 			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
+				new PredictionModal(this.app, this).open();
 			}
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+		// Add settings tab
+		this.addSettingTab(new FatebookSettingTab(this.app, this));
 	}
 
 	onunload() {
@@ -89,16 +40,161 @@ export default class MyPlugin extends Plugin {
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
+
+	async createPrediction(title: string, resolveBy: string, forecast: string): Promise<boolean> {
+		if (!this.settings.apiKey) {
+			new Notice('Please set your Fatebook API key in settings');
+			return false;
+		}
+
+		try {
+			// First create the prediction
+			const createUrl = new URL('https://fatebook.io/api/v0/createQuestion');
+			createUrl.searchParams.append('apiKey', this.settings.apiKey);
+			createUrl.searchParams.append('title', title);
+			createUrl.searchParams.append('resolveBy', resolveBy);
+			createUrl.searchParams.append('forecast', forecast);
+
+			const createResponse = await this.makeRequest(createUrl.toString());
+			if (!createResponse) {
+				return false;
+			}
+
+			// Then get the question details
+			const getUrl = new URL('https://fatebook.io/api/v0/getQuestions');
+			getUrl.searchParams.append('apiKey', this.settings.apiKey);
+			getUrl.searchParams.append('limit', '1');
+
+			const getResponse = await this.makeRequest(getUrl.toString());
+			if (!getResponse) {
+				return false;
+			}
+
+			const data = JSON.parse(getResponse);
+			if (data.items && data.items.length > 0) {
+				const question = data.items[0];
+				const formattedTitle = question.title.replace(/\s+/g, '-').toLowerCase();
+				const link = `https://fatebook.io/q/${formattedTitle}--${question.id}`;
+				const markdownLink = `[${question.title}](${link})`;
+
+				// Copy to clipboard
+				await navigator.clipboard.writeText(markdownLink);
+				new Notice('Prediction created and link copied to clipboard!');
+				return true;
+			}
+
+			new Notice('Prediction created but could not get link');
+			return true;
+		} catch (error) {
+			console.error('Full error:', error);
+			new Notice(`Failed to create prediction: ${error.message}`);
+			return false;
+		}
+	}
+
+	// Helper function to make HTTP requests
+	private makeRequest(url: string): Promise<string | null> {
+		return new Promise((resolve) => {
+			// @ts-ignore
+			const https = require('https');
+			
+			https.get(url, (resp: any) => {
+				let data = '';
+
+				resp.on('data', (chunk: any) => {
+					data += chunk;
+				});
+
+				resp.on('end', () => {
+					resolve(data);
+				});
+			}).on('error', (err: Error) => {
+				console.error('Error:', err);
+				new Notice(`Request failed: ${err.message}`);
+				resolve(null);
+			});
+		});
+	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
+class PredictionModal extends Modal {
+	plugin: FatebookPlugin;
+	titleInput: HTMLInputElement;
+	forecastInput: HTMLInputElement;
+	resolveByInput: HTMLInputElement;
+
+	constructor(app: App, plugin: FatebookPlugin) {
 		super(app);
+		this.plugin = plugin;
 	}
 
 	onOpen() {
 		const {contentEl} = this;
-		contentEl.setText('Woah!');
+		contentEl.empty();
+		contentEl.createEl('h2', {text: 'Create Fatebook Prediction'});
+
+		// Create form container
+		const form = contentEl.createEl('form');
+		form.onsubmit = async (e) => {
+			e.preventDefault();
+			await this.createPrediction();
+		};
+
+		new Setting(form)
+			.setName('Question')
+			.addText(text => {
+				this.titleInput = text.inputEl;
+				text.setPlaceholder('Will X happen by Y date?');
+			});
+
+		new Setting(form)
+			.setName('Forecast (0-1)')
+			.addText(text => {
+				this.forecastInput = text.inputEl;
+				text.setPlaceholder('0.75')
+					.setValue('0.5');
+			});
+
+		new Setting(form)
+			.setName('Resolve By')
+			.addText(text => {
+				this.resolveByInput = text.inputEl;
+				text.setPlaceholder('YYYY-MM-DD');
+			});
+
+		new Setting(form)
+			.addButton(btn => btn
+				.setButtonText('Create Prediction')
+				.onClick(() => this.createPrediction()));
+	}
+
+	async createPrediction() {
+		// Validate inputs
+		const forecast = parseFloat(this.forecastInput.value);
+		if (isNaN(forecast) || forecast < 0 || forecast > 1) {
+			new Notice('Forecast must be a number between 0 and 1');
+			return;
+		}
+
+		if (!this.resolveByInput.value.match(/^\d{4}-\d{2}-\d{2}$/)) {
+			new Notice('Resolve By must be in YYYY-MM-DD format');
+			return;
+		}
+
+		if (!this.titleInput.value.trim()) {
+			new Notice('Question cannot be empty');
+			return;
+		}
+
+		const success = await this.plugin.createPrediction(
+			this.titleInput.value,
+			this.resolveByInput.value,
+			this.forecastInput.value
+		);
+
+		if (success) {
+			this.close();
+		}
 	}
 
 	onClose() {
@@ -107,27 +203,26 @@ class SampleModal extends Modal {
 	}
 }
 
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+class FatebookSettingTab extends PluginSettingTab {
+	plugin: FatebookPlugin;
 
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: FatebookPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
 
 	display(): void {
 		const {containerEl} = this;
-
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
+			.setName('Fatebook API Key')
+			.setDesc('Enter your Fatebook API key')
 			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
+				.setPlaceholder('Enter your API key')
+				.setValue(this.plugin.settings.apiKey)
 				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
+					this.plugin.settings.apiKey = value;
 					await this.plugin.saveSettings();
 				}));
 	}
