@@ -56,6 +56,23 @@ This plugin is not available in the Obsidian Community Plugins store. To install
 
 Hover over any Fatebook link to see a preview of the prediction.
 
+### Updating the Plugin
+
+1. Open Terminal/Command Prompt and navigate to the plugin directory:
+   ```bash
+   cd /path/to/vault/.obsidian/plugins/fatebook-predictions
+   ```
+2. Pull the latest changes (requires [Git](#installing-git)):
+   ```bash
+   git pull
+   ```
+3. Install dependencies and rebuild (requires [Node.js and npm](#installing-nodejs-and-npm)):
+   ```bash
+   npm install
+   npm run build
+   ```
+4. Restart Obsidian
+
 ## Development
 
 To work on the plugin:
