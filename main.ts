@@ -238,7 +238,7 @@ class PredictionModal extends Modal {
 		new Setting(form)
 			.addButton(btn => btn
 				.setButtonText('Create Prediction')
-				.onClick(() => this.createPrediction()));
+				.setCta());
 	}
 
 	async createPrediction() {
