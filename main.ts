@@ -207,7 +207,6 @@ class PredictionModal extends Modal {
 		contentEl.empty();
 		contentEl.createEl('h2', {text: 'Create Fatebook Prediction'});
 
-		// Create form container
 		const form = contentEl.createEl('form');
 		form.onsubmit = async (e) => {
 			e.preventDefault();
@@ -222,18 +221,26 @@ class PredictionModal extends Modal {
 			});
 
 		new Setting(form)
-			.setName('Forecast (0-1)')
+			.setName('Probability (0-100)')
+			.setDesc('Enter any number greater than 0 and less than 100')
 			.addText(text => {
 				this.forecastInput = text.inputEl;
-				text.setPlaceholder('0.75')
-					.setValue('0.5');
+				this.forecastInput.type = 'number';
+				this.forecastInput.placeholder = '75.5';
+				this.forecastInput.value = '50';
+				this.forecastInput.setAttribute('step', 'any');
+				this.forecastInput.setAttribute('min', '0');
+				this.forecastInput.setAttribute('max', '100');
 			});
 
 		new Setting(form)
 			.setName('Resolve By')
 			.addText(text => {
 				this.resolveByInput = text.inputEl;
-				text.setPlaceholder('YYYY-MM-DD');
+				this.resolveByInput.type = 'date';
+				this.resolveByInput.placeholder = 'Select date';
+				const today = new Date().toISOString().split('T')[0];
+				this.resolveByInput.setAttribute('min', today);
 			});
 
 		new Setting(form)
@@ -244,16 +251,23 @@ class PredictionModal extends Modal {
 
 	async createPrediction() {
 		// Validate inputs
-		const forecast = parseFloat(this.forecastInput.value);
-		if (isNaN(forecast) || forecast < 0 || forecast > 1) {
-			new Notice('Forecast must be a number between 0 and 1');
+		const probability = parseFloat(this.forecastInput.value);
+		if (isNaN(probability) || probability <= 0 || probability >= 100) {
+			new Notice('Probability must be a number greater than 0 and less than 100');
 			return;
 		}
 
-		if (!this.resolveByInput.value.match(/^\d{4}-\d{2}-\d{2}$/)) {
-			new Notice('Resolve By must be in YYYY-MM-DD format');
+		// Convert probability to forecast (0-1 range)
+		const forecast = probability / 100;
+
+		const resolveDate = new Date(this.resolveByInput.value);
+		if (isNaN(resolveDate.getTime())) {
+			new Notice('Please select a valid date');
 			return;
 		}
+
+		// Format date as YYYY-MM-DD
+		const resolveBy = resolveDate.toISOString().split('T')[0];
 
 		if (!this.titleInput.value.trim()) {
 			new Notice('Question cannot be empty');
@@ -262,8 +276,8 @@ class PredictionModal extends Modal {
 
 		const success = await this.plugin.createPrediction(
 			this.titleInput.value,
-			this.resolveByInput.value,
-			this.forecastInput.value
+			resolveBy,
+			forecast.toString()
 		);
 
 		if (success) {
