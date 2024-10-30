@@ -128,6 +128,7 @@ export default class FatebookPlugin extends Plugin {
 			createUrl.searchParams.append('title', title);
 			createUrl.searchParams.append('resolveBy', resolveBy);
 			createUrl.searchParams.append('forecast', forecast);
+			createUrl.searchParams.append('sharePublicly', 'yes');
 
 			const createResponse = await this.makeRequest(createUrl.toString());
 			if (!createResponse) {
