@@ -115,7 +115,7 @@ export default class FatebookPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	async createPrediction(title: string, resolveBy: string, forecast: string): Promise<boolean> {
+	async createPrediction(title: string, resolveBy: string, forecast: string, tags: string[] = []): Promise<boolean> {
 		if (!this.settings.apiKey) {
 			new Notice('Please set your Fatebook API key in settings');
 			return false;
@@ -129,6 +129,11 @@ export default class FatebookPlugin extends Plugin {
 			createUrl.searchParams.append('resolveBy', resolveBy);
 			createUrl.searchParams.append('forecast', forecast);
 			createUrl.searchParams.append('sharePublicly', 'yes');
+			
+			// Add tags to URL
+			tags.forEach(tag => {
+				createUrl.searchParams.append('tags', tag);
+			});
 
 			const createResponse = await this.makeRequest(createUrl.toString());
 			if (!createResponse) {
@@ -196,6 +201,7 @@ class PredictionModal extends Modal {
 	titleInput: HTMLInputElement;
 	forecastInput: HTMLInputElement;
 	resolveByInput: HTMLInputElement;
+	tagsInput: HTMLInputElement;
 
 	constructor(app: App, plugin: FatebookPlugin) {
 		super(app);
@@ -244,6 +250,14 @@ class PredictionModal extends Modal {
 			});
 
 		new Setting(form)
+			.setName('Tags')
+			.setDesc('Comma-separated list of tags (optional)')
+			.addText(text => {
+				this.tagsInput = text.inputEl;
+				text.setPlaceholder('tag1, tag2, tag3');
+			});
+
+		new Setting(form)
 			.addButton(btn => btn
 				.setButtonText('Create Prediction')
 				.setCta());
@@ -277,7 +291,11 @@ class PredictionModal extends Modal {
 		const success = await this.plugin.createPrediction(
 			this.titleInput.value,
 			resolveBy,
-			forecast.toString()
+			forecast.toString(),
+			this.tagsInput.value
+				.split(',')
+				.map(tag => tag.trim())
+				.filter(tag => tag.length > 0)
 		);
 
 		if (success) {
