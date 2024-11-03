@@ -3,10 +3,12 @@ import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetTy
 
 interface MyPluginSettings {
 	apiKey: string;
+	recentTags: string[];
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
-	apiKey: ''
+	apiKey: '',
+	recentTags: []
 }
 
 export default class FatebookPlugin extends Plugin {
@@ -255,6 +257,10 @@ class PredictionModal extends Modal {
 			.addText(text => {
 				this.tagsInput = text.inputEl;
 				text.setPlaceholder('tag1, tag2, tag3');
+				// Pre-fill with recent tags
+				if (this.plugin.settings.recentTags.length > 0) {
+					this.tagsInput.value = this.plugin.settings.recentTags.join(', ');
+				}
 			});
 
 		new Setting(form)
@@ -288,14 +294,20 @@ class PredictionModal extends Modal {
 			return;
 		}
 
+		const tags = this.tagsInput.value
+			.split(',')
+			.map(tag => tag.trim())
+			.filter(tag => tag.length > 0);
+
+		// Save tags to settings
+		this.plugin.settings.recentTags = tags;
+		await this.plugin.saveSettings();
+
 		const success = await this.plugin.createPrediction(
 			this.titleInput.value,
 			resolveBy,
 			forecast.toString(),
-			this.tagsInput.value
-				.split(',')
-				.map(tag => tag.trim())
-				.filter(tag => tag.length > 0)
+			tags
 		);
 
 		if (success) {
@@ -329,6 +341,21 @@ class FatebookSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.apiKey)
 				.onChange(async (value) => {
 					this.plugin.settings.apiKey = value;
+					await this.plugin.saveSettings();
+				}));
+
+		// Add tag management to settings
+		new Setting(containerEl)
+			.setName('Default Tags')
+			.setDesc('Default tags to pre-fill when creating predictions')
+			.addText(text => text
+				.setPlaceholder('tag1, tag2, tag3')
+				.setValue(this.plugin.settings.recentTags.join(', '))
+				.onChange(async (value) => {
+					this.plugin.settings.recentTags = value
+						.split(',')
+						.map(tag => tag.trim())
+						.filter(tag => tag.length > 0);
 					await this.plugin.saveSettings();
 				}));
 	}
